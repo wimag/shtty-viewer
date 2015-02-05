@@ -1,7 +1,9 @@
 import sys
 from os import listdir
+from collections import OrderedDict
 from os.path import isfile, join, dirname, splitext
 import operator
+import re
 from PyQt4 import QtGui, QtCore
 
 from converter import Shot, Diagram
@@ -11,6 +13,87 @@ from matplotlib.backends.backend_qt4agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qt4agg import NavigationToolbar2QT as NavigationToolbar
 import matplotlib.pyplot as plt
 import numpy as np
+
+class FiltersPopup(QtGui.QDialog):
+    def __init__(self, filters=None):
+        self.filter_dict = filters
+
+        QtGui.QWidget.__init__(self)
+        #filters list
+        self.filters = QtGui.QListWidget()
+        self.filters.setMaximumSize(200, 100000)
+        self.filters.setMinimumSize(100, 0)
+        self.filters.addItems(list(filters.keys()))
+        self.filters.itemClicked.connect(self.clickItem)
+
+        #button actions
+        self.layout2 = QtGui.QGridLayout()
+        self.addButton = QtGui.QPushButton('add', self)
+        self.addButton.clicked.connect(self.addFilter)
+        self.deleteButton = QtGui.QPushButton('delete', self)
+        self.deleteButton.clicked.connect(self.deleteFilter)
+        self.layout2.addWidget(self.addButton, 0, 0)
+        self.layout2.addWidget(self.deleteButton, 1, 0)
+
+        #edit actions
+        self.layout3 = QtGui.QGridLayout()
+        self.filter_name = QtGui.QLineEdit('Name', self)
+        self.filter_data = QtGui.QTextEdit('Filter', self)
+        self.apply_data = QtGui.QPushButton('Apply', self)
+        self.apply_data.clicked.connect(self.applyData)
+        self.layout3.addWidget(self.filter_name, 0, 0)
+        self.layout3.addWidget(self.filter_data, 1, 0)
+        self.layout3.addWidget(self.apply_data, 4, 0)
+        self.filter_data.hide()
+        self.filter_name.hide()
+        self.apply_data.hide()
+
+        #show filters value
+        self.layout = QtGui.QGridLayout()
+        self.layout.addWidget(self.filters, 0, 1)
+        self.layout.addLayout(self.layout2, 0, 0)
+        self.layout.addLayout(self.layout3, 0, 2)
+        self.setLayout(self.layout)
+
+    def addFilter(self):
+        name = "New Filter  "
+        tmp = 1
+        while name in self.filter_dict:
+            name = name[:-1] + str(tmp)
+            tmp += 1
+        self.filters.addItem(name)
+        self.filter_dict[name] = ""
+
+    def deleteFilter(self):
+        curv = self.filters.currentItem().text()
+        del self.filter_dict[curv]
+        self.filters.clear()
+        self.filters.addItems(list(self.filter_dict.keys()))
+
+    def clickItem(self):
+        self.filter_name.show()
+        self.filter_data.show()
+        self.apply_data.show()
+        self.filter_name.setText(self.filters.currentItem().text())
+        self.filter_data.setText(self.filter_dict[self.filters.currentItem().text()])
+
+    def applyData(self):#настройка фильтров
+        curv = self.filters.currentItem().text()
+        del self.filter_dict[curv]
+        self.filter_dict[self.filter_name.text().strip()] = self.filter_data.toPlainText().strip()
+        self.filters.clear()
+        self.filters.addItems(list(self.filter_dict.keys()))
+
+    def getValues(self):
+        with open("filters.conf", "w") as otp:
+            otp.write(str(len(self.filter_dict)))
+            otp.write("\n")
+            for key, value in self.filter_dict.items():
+                otp.write(str(key)+"\n")
+                otp.write(str(value)+"\n")
+        return self.filter_dict
+
+
 
 
 class Window(QtGui.QWidget):
@@ -69,8 +152,16 @@ class Window(QtGui.QWidget):
         self.save_button.clicked.connect(self.clear_times)
         self.save_button.hide()
 
+        #filter menu
+        self.filters_button = QtGui.QPushButton('Manage filters', self)
+        self.filters_button.clicked.connect(self.show_filters)
+        self.filters_button.hide()
+        self.filters = OrderedDict
+        self.read_filters()
+
         # set the layout
         self.layout = QtGui.QGridLayout()
+        self.layout.addWidget(self.filters_button, 0, 1)
         self.layout.addWidget(self.toolbar, 0, 2)
         self.layout.addWidget(self.canvas, 1, 2)
         self.layout.addWidget(self.diagrams, 1, 1)
@@ -79,13 +170,39 @@ class Window(QtGui.QWidget):
         self.layout.addWidget(self.save_button, 0, 3)
         self.setLayout(self.layout)
 
+    def read_filters(self):
+        with open("filters.conf") as inp:
+            lines = inp.readlines()
+        n = int(lines[0])
+        mass = []
+        for i in range(n):
+            mass.append((lines[2*i+1].strip(), lines[2*(i+1)].strip()))
+        self.filters = OrderedDict(mass)
+
+
+    def show_filters(self):
+        self.f = FiltersPopup(self.filters)
+        self.f.setGeometry(100, 100, 400, 200)
+        self.f.exec_()
+        self.filters = self.f.getValues()
+        self.show_diagrams()
+
+
+
     def clear_times(self):
         self.selected_points.clear()
         self.refresh_points()
 
     def select_item(self, current):
         self.figure.clf()
-        self.current_num = self.diagrams.currentRow()
+        name = self.diagrams.currentItem().text()
+        names = self.shot.get_diagram_names()
+        if name in names:
+            self.current_num = names.index(name)
+        else:
+            print(names)
+            self.current_num = names.index("".join(name.split(':')[1:])[1:])
+        print(self.current_num)
         self.plot(self.shot.get_diagram(self.current_num))
 
     def unselect_point(self, current):
@@ -100,6 +217,7 @@ class Window(QtGui.QWidget):
 
     def on_pick(self, event):
         print(self.current_point)
+
         if self.current_point in self.selected_points:
             self.selected_points.remove(self.current_point)
         else:
@@ -164,17 +282,33 @@ class Window(QtGui.QWidget):
         # refresh canvas
         self.canvas.draw()
 
+    def show_diagrams(self):
+        names = self.shot.get_diagram_names()
+        self.diagrams.clear()
+        res = set()
+        print(names)
+        for x in names:
+            for name, reg in self.filters.items():
+                try:
+                    if re.compile(reg).match(x):
+                        print(x)
+                        res.add(str(name) + ': ' + str(x))
+                        break
+                except:
+                    pass
+        #self.diagrams.addItems(list(names))
+        self.diagrams.addItems(list(res))
+        self.diagrams.show()
 
     def show_shot(self, shot):
         self.shot = shot
-        self.diagrams.clear()
-        self.diagrams.addItems(shot.get_diagram_names())
+        self.show_diagrams()
         self.toolbar.show()
         self.canvas.show()
-        self.diagrams.show()
         self.files.show()
         self.points.show()
         self.save_button.show()
+        self.filters_button.show()
         self.current_num = 0
         self.plot(self.shot.get_diagram(0))
         self.canvas.setFocus()

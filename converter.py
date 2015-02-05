@@ -50,3 +50,4 @@ class Diagram:
             self.name = data[0][0]
             self.comment = data[0][1]
             self.unit = data[0][2]
+
