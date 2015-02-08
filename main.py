@@ -7,6 +7,7 @@ import re
 from PyQt4 import QtGui, QtCore
 
 from converter import Shot, Diagram
+from lists import ThumbListWidget
 # from plotter import PointBrowser
 
 from matplotlib.backends.backend_qt4agg import FigureCanvasQTAgg as FigureCanvas
@@ -94,8 +95,6 @@ class FiltersPopup(QtGui.QDialog):
         return self.filter_dict
 
 
-
-
 class Window(QtGui.QWidget):
     def __init__(self, parent=None):
         QtGui.QWidget.__init__(self, parent)
@@ -134,8 +133,10 @@ class Window(QtGui.QWidget):
         self.files.hide()
 
         # Show selected points
-        self.points = QtGui.QListWidget()
-        self.points.itemDoubleClicked.connect(self.unselect_point)
+        self.points = ThumbListWidget(self)
+        #self.points.itemDoubleClicked.connect(self.unselect_point)
+        self.points.itemClicked.connect(self.points_clicked)
+        self.points.itemDoubleClicked.connect(self.points_doubleclicked)
         self.points.setMaximumSize(200, 100000)
         self.points.setMinimumSize(100, 0)
         self.points.hide()
@@ -159,6 +160,27 @@ class Window(QtGui.QWidget):
         self.filters = OrderedDict
         self.read_filters()
 
+
+        #diagramms
+        self.bottom_layout = QtGui.QGridLayout()
+        self.diagrams_figure = plt.figure()
+        self.diagrams_canvas = FigureCanvas(self.diagrams_figure)
+        self.diagrams_canvas.setParent(parent)
+        self.diagrams_canvas.setMinimumSize(250, 250)
+        self.diagrams_canvas.setMaximumSize(500, 500)
+        self.diagrams_toolbar = NavigationToolbar(self.diagrams_canvas, self)
+        self.diagrams_toolbar.setMaximumWidth(250)
+        self.diagrams_ax = self.diagrams_figure.add_subplot(111)
+        self.diagrams_ax.plot([3], [3], 'bo', ms=12, alpha=0.8, markersize=8)
+        self.diagrams_canvas.draw()
+
+        self.enlargre_button = QtGui.QPushButton('Enlarge diagram', self)
+        self.enlargre_button.clicked.connect(self.enlarge_diagram)
+
+        self.bottom_layout.addWidget(self.diagrams_toolbar, 0, 2)
+        self.bottom_layout.addWidget(self.diagrams_canvas, 1, 2, QtCore.Qt.AlignRight)
+        self.bottom_layout.addWidget(self.enlargre_button, 0, 1)
+
         # set the layout
         self.layout = QtGui.QGridLayout()
         self.layout.addWidget(self.filters_button, 0, 1)
@@ -168,7 +190,90 @@ class Window(QtGui.QWidget):
         self.layout.addWidget(self.files, 1, 0)
         self.layout.addWidget(self.points, 1, 3)
         self.layout.addWidget(self.save_button, 0, 3)
+        self.layout.addLayout(self.bottom_layout, 2, 2)
         self.setLayout(self.layout)
+
+
+    def enlarge_diagram(self): #меняет местами диаграммы
+        pass
+
+    def points_doubleclicked(self):
+        if self.points._mouse_button == 1:
+            num = self.points.currentRow()
+            point = list(self.selected_points)[num]
+            diag = self.shot.get_diagram(self.current_num)
+
+            xs = np.array(diag.x)
+            ys = np.array(diag.y)
+
+            idx = np.absolute(xs - point[0]).argmin()
+
+            npoint = (xs[idx], ys[idx], self.current_num, self.shot.file[0])
+            for point in list(self.selected_points):
+                if point[2:3] == self.current_point[2:3]:
+                    self.selected_points.remove(point)
+            self.selected_points.add(npoint)
+            self.refresh_points()
+
+
+    def greenvald(self): #диаграмма хьюгилла
+        temp = {}
+        names = self.shot.get_diagram_names()
+        for x in self.selected_points:
+            if x[3] not in temp:
+                temp[x[3]] = {}
+            tag = ""
+            for name, value in self.filters.items():
+                if re.compile(value).match(names[x[2]]):
+                    tag = name
+                    break
+            if tag:
+                temp[x[3]][tag] = x[0], x[1]
+        for x in temp:
+            if "Ip" in temp[x] and "neL" in temp[x] and "ITF" in temp[x]:
+                a = 24
+                R = 36
+                k = 1.65
+
+                print("wololo")
+
+                Ip = temp[x]["Ip"][1]/1000
+                Itf = temp[x]["ITF"][1]/1000
+                neL = temp[x]["neL"][1]
+                Bt = Itf*0.001*100*16*0.2/R
+
+                qcyl = 5*a*a*0.01*0.01*Bt*100*1000/(R*Ip)
+
+                print(temp[x])
+                print(Itf)
+                print(neL)
+
+                rqcyl = 1/qcyl
+                ne = neL*0.03/k
+                BtrR = Bt*100/R
+                neRrBt = ne/BtrR
+                print(neRrBt)
+
+
+    def update_diagramms(self):
+        self.greenvald()
+
+    def points_clicked(self):#один клик, правая кнопка - удалить точку, левая - подсветить
+        if self.points._mouse_button == 1:
+            num = self.points.currentRow()
+            point = list(self.selected_points)[num]
+            diag = self.shot.get_diagram(self.current_num)
+
+            xs = np.array(diag.x)
+            ys = np.array(diag.y)
+
+            idx = np.absolute(xs - point[0]).argmin()
+
+            self.highlight.set_xdata([xs[idx]])
+            self.highlight.set_ydata([ys[idx]])
+        else:
+            self.unselect_point(None)
+
 
     def read_filters(self):
         with open("filters.conf") as inp:
@@ -200,9 +305,7 @@ class Window(QtGui.QWidget):
         if name in names:
             self.current_num = names.index(name)
         else:
-            print(names)
             self.current_num = names.index("".join(name.split(':')[1:])[1:])
-        print(self.current_num)
         self.plot(self.shot.get_diagram(self.current_num))
 
     def unselect_point(self, current):
@@ -216,15 +319,18 @@ class Window(QtGui.QWidget):
         self.canvas.setFocus()
 
     def on_pick(self, event):
-        print(self.current_point)
 
         if self.current_point in self.selected_points:
             self.selected_points.remove(self.current_point)
         else:
+            for point in list(self.selected_points):
+                if point[2:3] == self.current_point[2:3]:
+                    self.selected_points.remove(point)
             self.selected_points.add(self.current_point)
         self.refresh_points()
 
     def refresh_points(self):
+        self.update_diagramms()
         self.points.clear()
         self.points.addItems([str(x[0]) for x in self.selected_points])
         self.overall_selected.set_xdata(self.active_points[0])
@@ -241,12 +347,8 @@ class Window(QtGui.QWidget):
 
             xs = np.array(diag.x)
             ys = np.array(diag.y)
-            xa = max(np.absolute(xs))
-            ya = max(np.absolute(ys))
-            xs = xs / xa
-            ys = ys / ya
 
-            idx = (np.hypot(xs - event.xdata / xa, ys - event.ydata / ya)).argmin()
+            idx = np.absolute(xs - event.xdata).argmin()
             self.currently_selected.set_xdata([diag.x[idx]])
             self.currently_selected.set_ydata([diag.y[idx]])
             self.current_point = (diag.x[idx], diag.y[idx], self.current_num, self.shot.file[0])
@@ -269,7 +371,7 @@ class Window(QtGui.QWidget):
         ind = np.argmax(np.array(diagram.y))
         # plot data
         if diagram:
-            ax.plot([diagram.x[ind]], [diagram.y[ind]], 'bo', ms=12, alpha=0.8, markersize=8)
+            self.highlight, = ax.plot([diagram.x[ind]], [diagram.y[ind]], 'bo', ms=12, alpha=0.8, markersize=8)
             ax.plot(diagram.x, diagram.y, 'b-')
             self.currently_selected, = ax.plot([diagram.x[ind]], [diagram.y[ind]], 'yo', ms=12, alpha=0.6, markersize=6,
                                                picker=15)
@@ -278,7 +380,7 @@ class Window(QtGui.QWidget):
             ax.set_xlabel('t, sec')
             ax.set_ylabel(diagram.unit)
             ax.set_title(diagram.comment)
-            plt.tight_layout()
+            self.figure.tight_layout()
         # refresh canvas
         self.canvas.draw()
 
@@ -286,12 +388,10 @@ class Window(QtGui.QWidget):
         names = self.shot.get_diagram_names()
         self.diagrams.clear()
         res = set()
-        print(names)
         for x in names:
             for name, reg in self.filters.items():
                 try:
                     if re.compile(reg).match(x):
-                        print(x)
                         res.add(str(name) + ': ' + str(x))
                         break
                 except:
@@ -314,10 +414,12 @@ class Window(QtGui.QWidget):
         self.canvas.setFocus()
 
 
+
 class MainWindow(QtGui.QMainWindow):
     def __init__(self):
         super(MainWindow, self).__init__()
         self.window = Window(self)
+        #self.diagramms = DiagramWindow(self)
         self.initUI()
         self.setCentralWidget(self.window)
 
@@ -353,7 +455,7 @@ class MainWindow(QtGui.QMainWindow):
         toolbar.addAction(exitAction)
         toolbar.addAction(saveAction)
 
-        self.setGeometry(200, 200, 600, 450)
+        self.setGeometry(200, 200, 600, 700)
         self.setWindowTitle('SHTty Viewer')
         self.show()
 
@@ -364,7 +466,6 @@ class MainWindow(QtGui.QMainWindow):
             folder_name += '/'
         else:
             return
-        print(folder_name)
         self.window.folder_name = folder_name
         self.window.files.clear()
         self.window.show_shot(Shot(file_name))
@@ -387,6 +488,10 @@ class MainWindow(QtGui.QMainWindow):
                 otp.write(str(point[0]))
                 otp.write("\n")
 
+    def closeEvent(self, QCloseEvent):
+        plt.close(self.window.diagrams_figure)
+        plt.close(self.window.figure)
+        QCloseEvent.accept()
 
 if __name__ == '__main__':
     app = QtGui.QApplication(sys.argv)
