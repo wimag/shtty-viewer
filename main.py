@@ -7,7 +7,7 @@ import re
 from PyQt4 import QtGui, QtCore
 
 from converter import Shot, Diagram
-from lists import ThumbListWidget
+from lists import ThumbListWidget, OrderedSet
 # from plotter import PointBrowser
 
 from matplotlib.backends.backend_qt4agg import FigureCanvasQTAgg as FigureCanvas
@@ -102,7 +102,7 @@ class Window(QtGui.QWidget):
         self.folder_name = ''  #folder to search for shots
         self.current_num = 0  #current diagram
         self.currently_selected = None  #selected point plot
-        self.selected_points = set()  #point to be added
+        self.selected_points = OrderedSet()  #point to be added
         self.current_point = None  #plot of current point
         self.overall_selected = None  #points added to selected list
         #super(Window, self).__init__(parent)
@@ -149,8 +149,8 @@ class Window(QtGui.QWidget):
         self.diagrams.hide()
 
         #save result button
-        self.save_button = QtGui.QPushButton('Clear time points', self)
-        self.save_button.clicked.connect(self.clear_times)
+        self.save_button = QtGui.QPushButton('Add time point', self)
+        self.save_button.clicked.connect(self.add_time)
         self.save_button.hide()
 
         #filter menu
@@ -171,7 +171,8 @@ class Window(QtGui.QWidget):
         self.diagrams_toolbar = NavigationToolbar(self.diagrams_canvas, self)
         self.diagrams_toolbar.setMaximumWidth(250)
         self.diagrams_ax = self.diagrams_figure.add_subplot(111)
-        self.diagrams_ax.plot([3], [3], 'bo', ms=12, alpha=0.8, markersize=8)
+        self.diagrams_ax.set_ylim(ymin=0)
+        self.diagrams_ax.set_xlim(xmin=0)
         self.diagrams_canvas.draw()
 
         self.enlargre_button = QtGui.QPushButton('Enlarge diagram', self)
@@ -210,13 +211,13 @@ class Window(QtGui.QWidget):
 
             npoint = (xs[idx], ys[idx], self.current_num, self.shot.file[0])
             for point in list(self.selected_points):
-                if point[2:3] == self.current_point[2:3]:
+                if point[2] == self.current_point[2] and point[3] == self.current_point[3]:
                     self.selected_points.remove(point)
             self.selected_points.add(npoint)
             self.refresh_points()
 
 
-    def greenvald(self): #диаграмма хьюгилла
+    def greenvald(self): #диаграмма хьюгилла #TODO - move to another file
         temp = {}
         names = self.shot.get_diagram_names()
         for x in self.selected_points:
@@ -228,35 +229,53 @@ class Window(QtGui.QWidget):
                     tag = name
                     break
             if tag:
-                temp[x[3]][tag] = x[0], x[1]
+                temp[x[3]][tag] = x[0], x[1], x[3] #X, Y, Shot
+        points = []
         for x in temp:
             if "Ip" in temp[x] and "neL" in temp[x] and "ITF" in temp[x]:
                 a = 24
                 R = 36
                 k = 1.65
 
-                print("wololo")
+                #print("wololo")
 
                 Ip = temp[x]["Ip"][1]/1000
                 Itf = temp[x]["ITF"][1]/1000
                 neL = temp[x]["neL"][1]
                 Bt = Itf*0.001*100*16*0.2/R
-
-                qcyl = 5*a*a*0.01*0.01*Bt*100*1000/(R*Ip)
-
-                print(temp[x])
+                print(Ip)
                 print(Itf)
                 print(neL)
+                print(Bt)
+                qcyl = 5*a*a*0.01*0.01*Bt*100*1000/(R*Ip)
+                print(qcyl)
+                #print(temp[x])
+                #print(Itf)
+                #print(neL)
 
                 rqcyl = 1/qcyl
+                print(rqcyl)
+                print("wololo")
                 ne = neL*0.03/k
                 BtrR = Bt*100/R
+                print(ne)
+                print(BtrR)
                 neRrBt = ne/BtrR
                 print(neRrBt)
-
+                points.append(((neRrBt, rqcyl), temp[x]["Ip"][2]))
+        return points
 
     def update_diagramms(self):
-        self.greenvald()
+        points = self.greenvald()
+        x = [tmp[0][0] for tmp in points]
+        y = [tmp[0][1] for tmp in points]
+        #self.diagrams_figure.clf()
+        self.diagrams_ax.set_xlabel('neR/BT, 10^20/(T*m^2)')
+        self.diagrams_ax.set_ylabel('1/qcyl')
+        self.diagrams_ax.set_title("Greenwald")
+        self.diagrams_ax.plot(x, y, 'bo', ms=5, alpha=0.8, markersize=5)
+        self.diagrams_canvas.draw()
+        print(points)
 
     def points_clicked(self):#один клик, правая кнопка - удалить точку, левая - подсветить
         if self.points._mouse_button == 1:
@@ -294,9 +313,24 @@ class Window(QtGui.QWidget):
 
 
 
-    def clear_times(self):
-        self.selected_points.clear()
-        self.refresh_points()
+    def add_time(self):
+        time, ok = QtGui.QInputDialog.getText(self, 'Time point', 'enter time point in seconds(e.g. 0.123):')
+        if ok:
+            if time.isdigit:
+                diag = self.shot.get_diagram(self.current_num)
+
+                xs = np.array(diag.x)
+                ys = np.array(diag.y)
+
+                idx = np.absolute(xs - float(time)/1000).argmin()
+
+                npoint = (xs[idx], ys[idx], self.current_num, self.shot.file[0])
+                for point in list(self.selected_points):
+                    if point[2] == self.current_point[2] and point[3] == self.current_point[3]:
+                        print("wololololololo")
+                        self.selected_points.remove(point)
+                self.selected_points.add(npoint)
+                self.refresh_points()
 
     def select_item(self, current):
         self.figure.clf()
@@ -319,12 +353,13 @@ class Window(QtGui.QWidget):
         self.canvas.setFocus()
 
     def on_pick(self, event):
-
+        print(self.selected_points)
         if self.current_point in self.selected_points:
             self.selected_points.remove(self.current_point)
         else:
             for point in list(self.selected_points):
-                if point[2:3] == self.current_point[2:3]:
+                if point[2] == self.current_point[2] and point[3] == self.current_point[3]:
+                    print("wololo")
                     self.selected_points.remove(point)
             self.selected_points.add(self.current_point)
         self.refresh_points()
@@ -439,8 +474,13 @@ class MainWindow(QtGui.QMainWindow):
         #save file action
         saveAction = QtGui.QAction(QtGui.QIcon('icons/save-file-icon.png'), 'Save', self)
         saveAction.setShortcut('Ctrl+S')
-        saveAction.setStatusTip('Save tome points')
+        saveAction.setStatusTip('Save time points')
         saveAction.triggered.connect(self.saveFile)
+
+        #open points action
+        openPointsAction = QtGui.QAction(QtGui.QIcon('icons/open-file-icon.png'), 'Open points', self)
+        openPointsAction.setStatusTip('Open time points')
+        openPointsAction.triggered.connect(self.openPoints)
 
         self.statusBar()
 
@@ -449,6 +489,7 @@ class MainWindow(QtGui.QMainWindow):
         fileMenu.addAction(openAction)
         fileMenu.addAction(exitAction)
         fileMenu.addAction(saveAction)
+        fileMenu.addAction(openPointsAction)
 
         toolbar = self.addToolBar('Exit')
         toolbar.addAction(openAction)
@@ -475,18 +516,26 @@ class MainWindow(QtGui.QMainWindow):
 
         self.window.files.addItems(files)
 
+    def openPoints(self):
+        file_name = QtGui.QFileDialog.getOpenFileName(self, 'Open points file', filter='*.txt')
+        with open(file_name) as inp:
+            lines = inp.readlines()
+            points = []
+            for line in lines:
+                tmp = line.strip().split()
+                points.append((float(tmp[0]), float(tmp[1]), int(tmp[2]), tmp[3]))
+        self.window.selected_points = points
+        self.window.refresh_points()
+
     def saveFile(self):
         file_name = QtGui.QFileDialog.getSaveFileName(self, 'Save File', filter='*.txt')
         with open(file_name, 'wt') as otp:
             points = list(self.window.selected_points)
             points.sort(key=operator.itemgetter(3))
             for i, point in enumerate(points):
-                if not i or point[3] != points[i-1][3]:
-                    otp.write("\n")
-                    otp.write(point[3])
-                    otp.write("\n\n")
-                otp.write(str(point[0]))
-                otp.write("\n")
+                s = " ".join([str(x) for x in point])
+                otp.write(s)
+                otp.write('\n')
 
     def closeEvent(self, QCloseEvent):
         plt.close(self.window.diagrams_figure)
