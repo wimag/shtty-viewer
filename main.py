@@ -7,6 +7,7 @@ import re
 from PyQt4 import QtGui, QtCore
 
 from converter import Shot, Diagram
+import precessing as proc
 from lists import ThumbListWidget, OrderedSet
 # from plotter import PointBrowser
 
@@ -171,8 +172,8 @@ class Window(QtGui.QWidget):
         self.diagrams_toolbar = NavigationToolbar(self.diagrams_canvas, self)
         self.diagrams_toolbar.setMaximumWidth(250)
         self.diagrams_ax = self.diagrams_figure.add_subplot(111)
-        self.diagrams_ax.set_ylim(ymin=0)
-        self.diagrams_ax.set_xlim(xmin=0)
+        #self.diagrams_ax.set_ylim(ymin=0)
+        #self.diagrams_ax.set_xlim(xmin=0)
         self.diagrams_canvas.draw()
 
         self.enlargre_button = QtGui.QPushButton('Enlarge diagram', self)
@@ -215,67 +216,29 @@ class Window(QtGui.QWidget):
                     self.selected_points.remove(point)
             self.selected_points.add(npoint)
             self.refresh_points()
+    def update_diagrams(self):
+        pass
 
+    def pricess_flux(self):
+        names = []
+        for i in range(self.files.count()):
+            names.append(join(self.folder_name, self.files.item(i).text()))
+        points = proc.build_flux_nl_dependency(names, 200000)
+        x_nbi = [t[1] for t in points if t[4] == 1]
+        y_nbi = [t[0] for t in points if t[4] == 1]
 
-    def greenvald(self): #диаграмма хьюгилла #TODO - move to another file
-        temp = {}
-        names = self.shot.get_diagram_names()
-        for x in self.selected_points:
-            if x[3] not in temp:
-                temp[x[3]] = {}
-            tag = ""
-            for name, value in self.filters.items():
-                if re.compile(value).match(names[x[2]]):
-                    tag = name
-                    break
-            if tag:
-                temp[x[3]][tag] = x[0], x[1], x[3] #X, Y, Shot
-        points = []
-        for x in temp:
-            if "Ip" in temp[x] and "neL" in temp[x] and "ITF" in temp[x]:
-                a = 24
-                R = 36
-                k = 1.65
+        x_oh = [t[1] for t in points if t[4] == 0]
+        y_oh = [t[0] for t in points if t[4] == 0]
 
-                #print("wololo")
-
-                Ip = temp[x]["Ip"][1]/1000
-                Itf = temp[x]["ITF"][1]/1000
-                neL = temp[x]["neL"][1]
-                Bt = Itf*0.001*100*16*0.2/R
-                print(Ip)
-                print(Itf)
-                print(neL)
-                print(Bt)
-                qcyl = 5*a*a*0.01*0.01*Bt*100*1000/(R*Ip)
-                print(qcyl)
-                #print(temp[x])
-                #print(Itf)
-                #print(neL)
-
-                rqcyl = 1/qcyl
-                print(rqcyl)
-                print("wololo")
-                ne = neL*0.03/k
-                BtrR = Bt*100/R
-                print(ne)
-                print(BtrR)
-                neRrBt = ne/BtrR
-                print(neRrBt)
-                points.append(((neRrBt, rqcyl), temp[x]["Ip"][2]))
-        return points
-
-    def update_diagramms(self):
-        points = self.greenvald()
-        x = [tmp[0][0] for tmp in points]
-        y = [tmp[0][1] for tmp in points]
-        #self.diagrams_figure.clf()
-        self.diagrams_ax.set_xlabel('neR/BT, 10^20/(T*m^2)')
-        self.diagrams_ax.set_ylabel('1/qcyl')
-        self.diagrams_ax.set_title("Greenwald")
-        self.diagrams_ax.plot(x, y, 'bo', ms=5, alpha=0.8, markersize=5)
+        # print(len(x))
+        # print(len(y))
+        # print(x)
+        self.diagrams_ax.plot(x_oh, y_oh, 'bo', ms=5, alpha=0.8, markersize=5)
+        self.diagrams_ax.plot(x_nbi, y_nbi, 'ro', ms=5, alpha=0.8, markersize=5)
         self.diagrams_canvas.draw()
-        print(points)
+        pass
+
+
 
     def points_clicked(self):#один клик, правая кнопка - удалить точку, левая - подсветить
         if self.points._mouse_button == 1:
@@ -482,6 +445,10 @@ class MainWindow(QtGui.QMainWindow):
         openPointsAction.setStatusTip('Open time points')
         openPointsAction.triggered.connect(self.openPoints)
 
+        #process flux operation
+        processFluxAction = QtGui.QAction(QtGui.QIcon('icons/open-file-icon.png'), 'Process flux', self)
+        processFluxAction.setStatusTip('Open file first')
+        processFluxAction.triggered.connect(self.processFlux)
         self.statusBar()
 
         menubar = self.menuBar()
@@ -490,6 +457,9 @@ class MainWindow(QtGui.QMainWindow):
         fileMenu.addAction(exitAction)
         fileMenu.addAction(saveAction)
         fileMenu.addAction(openPointsAction)
+
+        operations = menubar.addMenu("&Operations")
+        operations.addAction(processFluxAction)
 
         toolbar = self.addToolBar('Exit')
         toolbar.addAction(openAction)
@@ -541,6 +511,12 @@ class MainWindow(QtGui.QMainWindow):
         plt.close(self.window.diagrams_figure)
         plt.close(self.window.figure)
         QCloseEvent.accept()
+
+    def processFlux(self):
+        if not self.window.folder_name:
+            self.openFile()
+        self.window.pricess_flux()
+
 
 if __name__ == '__main__':
     app = QtGui.QApplication(sys.argv)

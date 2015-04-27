@@ -1,12 +1,13 @@
 import os
 import shutil
-
+import numpy as np
 
 class Shot:
     def __init__(self, file):
         self.file = file.split('/')[-1].split(".")[:-1]
         self.result = "".join(["files/"] + file.split('/')[-1].split(".")[:-1]+[".csv"])
-        os.system(r'test.exe "{0}" "{1}"'.format(file, self.result))
+        if not os.path.isfile(self.result):
+            os.system(r'test.exe "{0}" "{1}"'.format(file, self.result))
         with open(self.result, "rt") as inp:
             lines = inp.readlines()
         self.length = int(lines[0])
@@ -30,7 +31,12 @@ class Shot:
             self.diagrams.append(Diagram(diagram))
 
     def get_diagram_names(self):
-        return [x.name for x in self.diagrams]
+        return [x.name.strip() for x in self.diagrams]
+
+    def get_diagram_for_name(self, name):
+        for x in self.diagrams:
+            if name in x.name.strip():
+                return x
 
     def get_diagram(self, n):
         return self.diagrams[n]
@@ -50,4 +56,19 @@ class Diagram:
             self.name = data[0][0]
             self.comment = data[0][1]
             self.unit = data[0][2]
+
+    def for_x(self, v):
+        if type(v) is list:
+            vals = v
+        else:
+            vals = [v]
+        p = np.searchsorted(self.x, vals)
+        res = []
+        for i in range(len(vals)):
+            if vals[i] == self.x[p[i]]:
+                res.append(self.y[p[i]])
+            else:
+                res.append(self.y[p[i]]+ (self.y[p[i]] - self.y[p[i]-1])*((self.x[p[i]]-self.x[p[i]-1])/(vals[i]-self.x[p[i]-1])))
+
+        return res
 
