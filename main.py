@@ -143,6 +143,7 @@ class Window(QtGui.QWidget):
         self.points.hide()
 
         #Show diagram widget
+        self.diagrams_points = None
         self.diagrams = QtGui.QListWidget()
         self.diagrams.itemClicked.connect(self.select_item)
         self.diagrams.setMaximumSize(250, 100000)
@@ -169,6 +170,7 @@ class Window(QtGui.QWidget):
         self.diagrams_canvas.setParent(parent)
         self.diagrams_canvas.setMinimumSize(250, 250)
         self.diagrams_canvas.setMaximumSize(500, 500)
+        self.diagrams_canvas.mpl_connect('pick_event', self.on_pick2)
         self.diagrams_toolbar = NavigationToolbar(self.diagrams_canvas, self)
         self.diagrams_toolbar.setMaximumWidth(250)
         self.diagrams_ax = self.diagrams_figure.add_subplot(111)
@@ -219,22 +221,23 @@ class Window(QtGui.QWidget):
     def update_diagrams(self):
         pass
 
-    def pricess_flux(self):
+    def process_flux(self, dependency=proc.build_beta_density_dependency):
         names = []
         for i in range(self.files.count()):
             names.append(join(self.folder_name, self.files.item(i).text()))
-        points = proc.build_flux_nl_dependency(names, 200000)
-        x_nbi = [t[1] for t in points if t[4] == 1]
-        y_nbi = [t[0] for t in points if t[4] == 1]
+        xlabel, ylabel, points = dependency(names, 200000)
+        self.diagrams_points = points
+        x_nbi = [t.properties[xlabel] for t in points if t.properties['nbi']]
+        y_nbi = [t.properties[ylabel] for t in points if t.properties['nbi']]
 
-        x_oh = [t[1] for t in points if t[4] == 0]
-        y_oh = [t[0] for t in points if t[4] == 0]
+        x_oh = [t.properties[xlabel] for t in points if not t.properties['nbi']]
+        y_oh = [t.properties[ylabel] for t in points if not t.properties['nbi']]
 
         # print(len(x))
         # print(len(y))
         # print(x)
-        self.diagrams_ax.plot(x_oh, y_oh, 'bo', ms=5, alpha=0.8, markersize=5)
-        self.diagrams_ax.plot(x_nbi, y_nbi, 'ro', ms=5, alpha=0.8, markersize=5)
+        self.diagrams_ax.plot(x_oh, y_oh, 'bo', ms=5, alpha=0.8, markersize=5, picker=6)
+        self.diagrams_ax.plot(x_nbi, y_nbi, 'ro', ms=5, alpha=0.8, markersize=5, picker=6)
         self.diagrams_canvas.draw()
         pass
 
@@ -315,7 +318,7 @@ class Window(QtGui.QWidget):
         self.show_shot(Shot(join(self.folder_name, self.files.currentItem().text())))
         self.canvas.setFocus()
 
-    def on_pick(self, event):
+    def on_pick(self, event): #Pick points on main graph
         print(self.selected_points)
         if self.current_point in self.selected_points:
             self.selected_points.remove(self.current_point)
@@ -326,6 +329,18 @@ class Window(QtGui.QWidget):
                     self.selected_points.remove(point)
             self.selected_points.add(self.current_point)
         self.refresh_points()
+
+    def on_pick2(self, event):
+        thisline = event.artist
+        xdata, ydata = thisline.get_data()
+        ind = event.ind
+
+        x, y = xdata[ind], ydata[ind]
+        for point in self.diagrams_points:
+            if x == point.t:
+                print(point.t)
+                print(point.file)
+
 
     def refresh_points(self):
         self.update_diagramms()
@@ -446,9 +461,17 @@ class MainWindow(QtGui.QMainWindow):
         openPointsAction.triggered.connect(self.openPoints)
 
         #process flux operation
-        processFluxAction = QtGui.QAction(QtGui.QIcon('icons/open-file-icon.png'), 'Process flux', self)
-        processFluxAction.setStatusTip('Open file first')
-        processFluxAction.triggered.connect(self.processFlux)
+        processFluxDensityAction = QtGui.QAction(QtGui.QIcon('icons/open-file-icon.png'), 'Process flux(density)', self)
+        processFluxDensityAction.setStatusTip('Open file first')
+        processFluxDensityAction.triggered.connect(self.processFlux_density)
+
+        processFluxBetaAction = QtGui.QAction(QtGui.QIcon('icons/open-file-icon.png'), 'Process beta(density)', self)
+        processFluxBetaAction.setStatusTip('Open file first')
+        processFluxBetaAction.triggered.connect(self.processFlux_beta)
+
+        processFluxTauAction = QtGui.QAction(QtGui.QIcon('icons/open-file-icon.png'), 'Process confinement time(density)', self)
+        processFluxTauAction.setStatusTip('Open file first')
+        processFluxTauAction.triggered.connect(self.processFlux_conf)
         self.statusBar()
 
         menubar = self.menuBar()
@@ -459,7 +482,9 @@ class MainWindow(QtGui.QMainWindow):
         fileMenu.addAction(openPointsAction)
 
         operations = menubar.addMenu("&Operations")
-        operations.addAction(processFluxAction)
+        operations.addAction(processFluxDensityAction)
+        operations.addAction(processFluxBetaAction)
+        operations.addAction(processFluxTauAction)
 
         toolbar = self.addToolBar('Exit')
         toolbar.addAction(openAction)
@@ -512,12 +537,20 @@ class MainWindow(QtGui.QMainWindow):
         plt.close(self.window.figure)
         QCloseEvent.accept()
 
-    def processFlux(self):
+    def processFlux_density(self):
         if not self.window.folder_name:
             self.openFile()
-        self.window.pricess_flux()
+        self.window.process_flux(proc.build_flux_nl_dependency)
 
+    def processFlux_beta(self):
+        if not self.window.folder_name:
+            self.openFile()
+        self.window.process_flux(proc.build_beta_density_dependency)
 
+    def processFlux_conf(self):
+        if not self.window.folder_name:
+            self.openFile()
+        self.window.process_flux(proc.build_tau_density_dependency)
 if __name__ == '__main__':
     app = QtGui.QApplication(sys.argv)
     shot = Shot("sht08965.sht")

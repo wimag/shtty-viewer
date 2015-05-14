@@ -4,6 +4,7 @@ import numpy as np
 
 class Shot:
     def __init__(self, file):
+        self.path = file
         self.file = file.split('/')[-1].split(".")[:-1]
         self.result = "".join(["files/"] + file.split('/')[-1].split(".")[:-1]+[".csv"])
         if not os.path.isfile(self.result):
@@ -68,7 +69,15 @@ class Diagram:
             if vals[i] == self.x[p[i]]:
                 res.append(self.y[p[i]])
             else:
-                res.append(self.y[p[i]]+ (self.y[p[i]] - self.y[p[i]-1])*((self.x[p[i]]-self.x[p[i]-1])/(vals[i]-self.x[p[i]-1])))
+                res.append(self.y[p[i-1]]+(self.y[p[i]] - self.y[p[i]-1])*((vals[i]-self.x[p[i]-1])/(self.x[p[i]]-self.x[p[i]-1])))
 
         return res
+
+    def bounded_max(self, l, r):
+        res = None
+        for i, t in enumerate(self.x):
+            if l <= t <= r and (not res or res < self.y[i]):
+                res = self.y[i]
+        return res
+
 
